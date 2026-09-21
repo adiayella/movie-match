@@ -179,7 +179,8 @@ def submit_preferences(session_id: str, body: PreferencesRequest):
     prefs = prefs_resp.data
     partners_present = {p["partner"] for p in prefs}
 
-    if {"A", "B"} <= partners_present:
+    error: Optional[str] = None
+    if {"A", "B"} <= partners_present and session["status"] != "swiping":
         profile_a = next(p for p in prefs if p["partner"] == "A")
         profile_b = next(p for p in prefs if p["partner"] == "B")
 
@@ -193,39 +194,54 @@ def submit_preferences(session_id: str, body: PreferencesRequest):
             )
             history = hist_resp.data or None
 
-        brief = claude_service.build_search_brief(profile_a, profile_b, history)
+        # Never let a failure here (a flaky/blocked external API, a bad
+        # brief, whatever) silently flip the session to "swiping" with an
+        # empty pool -- that used to strand both partners on an infinite
+        # "waiting" screen with zero explanation. Keep status unchanged and
+        # surface a real error the client can show + retry on instead.
+        try:
+            brief = claude_service.build_search_brief(profile_a, profile_b, history)
 
-        content_type = profile_a.get("content_type") or profile_b.get("content_type")
-        min_rating = max(
-            profile_a.get("min_rating") or 6, profile_b.get("min_rating") or 6
-        )
+            content_type = profile_a.get("content_type") or profile_b.get("content_type")
+            min_rating = max(
+                profile_a.get("min_rating") or 6, profile_b.get("min_rating") or 6
+            )
 
-        titles = tmdb_service.discover_titles(brief, content_type, min_rating)
+            titles = tmdb_service.discover_titles(brief, content_type, min_rating)
 
-        rows = [
-            {
-                "session_id": session_id,
-                "round": 1,
-                "tmdb_id": t["tmdb_id"],
-                "media_type": t["media_type"],
-                "title": t["title"],
-                "year": t["year"],
-                "imdb_rating": t["imdb_rating"],
-                "runtime": t["runtime"],
-                "synopsis": t["synopsis"],
-                "poster_url": t["poster_url"],
-            }
-            for t in titles
-        ]
-        if rows:
+            if not titles:
+                raise RuntimeError(
+                    "No titles matched these preferences (TMDB returned nothing, "
+                    "or TMDB was unreachable). Try again, or broaden your language/"
+                    "era/rating choices."
+                )
+
+            rows = [
+                {
+                    "session_id": session_id,
+                    "round": 1,
+                    "tmdb_id": t["tmdb_id"],
+                    "media_type": t["media_type"],
+                    "title": t["title"],
+                    "year": t["year"],
+                    "imdb_rating": t["imdb_rating"],
+                    "runtime": t["runtime"],
+                    "synopsis": t["synopsis"],
+                    "poster_url": t["poster_url"],
+                }
+                for t in titles
+            ]
             db.table("title_pool").insert(rows).execute()
 
-        db.table("sessions").update({"status": "swiping"}).eq(
-            "id", session_id
-        ).execute()
-        session["status"] = "swiping"
+            db.table("sessions").update({"status": "swiping"}).eq(
+                "id", session_id
+            ).execute()
+            session["status"] = "swiping"
+        except Exception as exc:  # noqa: BLE001 -- deliberately broad: any
+            # failure in this block must not corrupt session status.
+            error = str(exc)
 
-    return {"status": session["status"], "partner": assigned_partner}
+    return {"status": session["status"], "partner": assigned_partner, "error": error}
 
 
 @app.get("/sessions/{session_id}")

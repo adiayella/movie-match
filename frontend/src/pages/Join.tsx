@@ -9,6 +9,7 @@ export default function Join() {
   const navigate = useNavigate();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastValues, setLastValues] = useState<PreferenceFormValues | null>(null);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -23,10 +24,11 @@ export default function Join() {
     });
   }, [sessionId]);
 
-  async function handleSubmit(values: PreferenceFormValues) {
+  async function submit(values: PreferenceFormValues) {
     if (!sessionId) return;
     setSubmitting(true);
     setError(null);
+    setLastValues(values);
     try {
       const partner = getPartnerForSession(sessionId) || "B";
       const resp = await api.submitPreferences(sessionId, {
@@ -41,6 +43,13 @@ export default function Join() {
       if (resp.partner) {
         setPartnerForSession(sessionId, resp.partner);
       }
+      if (resp.error) {
+        // Both preferences were submitted but building tonight's shortlist
+        // failed (e.g. TMDB unreachable) -- surface it instead of silently
+        // leaving both partners stuck on "waiting" forever.
+        setError(resp.error);
+        return;
+      }
       if (resp.status === "swiping") {
         navigate(`/s/${sessionId}/swipe`);
       } else {
@@ -53,12 +62,27 @@ export default function Join() {
     }
   }
 
+  if (error) {
+    return (
+      <div className="center-col">
+        <h2>Couldn't build tonight's shortlist</h2>
+        <p style={{ color: "var(--accent-dark)" }}>{error}</p>
+        <button
+          className="btn-primary"
+          disabled={submitting}
+          onClick={() => lastValues && submit(lastValues)}
+        >
+          {submitting ? "Retrying..." : "Try again"}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div>
       <h2>You've been invited to movie night</h2>
       <p>Tell us what you're in the mood for. Your partner won't see this until you both match.</p>
-      <PreferenceForm onSubmit={handleSubmit} submitting={submitting} />
-      {error && <p style={{ color: "var(--accent-dark)" }}>{error}</p>}
+      <PreferenceForm onSubmit={submit} submitting={submitting} />
     </div>
   );
 }
