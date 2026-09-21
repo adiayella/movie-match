@@ -34,6 +34,13 @@ export default function Join() {
         ...values,
         device_id: getDeviceId(),
       });
+      // The backend decides the real slot (keyed by device_id) -- lock that
+      // in rather than trusting our pre-submission guess. Two people both
+      // arriving via this same join route (e.g. both just opened the
+      // shared link) would otherwise both guess "B".
+      if (resp.partner) {
+        setPartnerForSession(sessionId, resp.partner);
+      }
       if (resp.status === "swiping") {
         navigate(`/s/${sessionId}/swipe`);
       } else {

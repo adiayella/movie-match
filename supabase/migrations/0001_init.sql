@@ -25,6 +25,7 @@ create table if not exists preferences (
   id uuid primary key default gen_random_uuid(),
   session_id uuid references sessions(id),
   partner text check (partner in ('A','B')),
+  device_id text,
   moods text[],
   mood_text text,
   languages text[],

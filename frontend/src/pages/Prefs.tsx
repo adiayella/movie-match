@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import PreferenceForm, { PreferenceFormValues } from "../components/PreferenceForm";
 import { api } from "../lib/api";
-import { getDeviceId, getPartnerForSession } from "../lib/identity";
+import { getDeviceId, getPartnerForSession, setPartnerForSession } from "../lib/identity";
 
 export default function Prefs() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -21,6 +21,11 @@ export default function Prefs() {
         ...values,
         device_id: getDeviceId(),
       });
+      // The backend decides the real slot (keyed by device_id) -- lock that
+      // in rather than trusting our pre-submission guess.
+      if (resp.partner) {
+        setPartnerForSession(sessionId, resp.partner);
+      }
       if (resp.status === "swiping") {
         navigate(`/s/${sessionId}/swipe`);
       } else {

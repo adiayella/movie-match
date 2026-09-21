@@ -92,7 +92,7 @@ export const api = {
       device_id: string;
     }
   ) =>
-    request<{ status: string }>(`/sessions/${sessionId}/preferences`, {
+    request<{ status: string; partner: "A" | "B" }>(`/sessions/${sessionId}/preferences`, {
       method: "POST",
       body: JSON.stringify(body),
     }),

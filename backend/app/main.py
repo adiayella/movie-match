@@ -106,18 +106,51 @@ def submit_preferences(session_id: str, body: PreferencesRequest):
         raise HTTPException(status_code=404, detail="session not found")
     session = session_resp.data[0]
 
-    db.table("preferences").insert(
-        {
-            "session_id": session_id,
-            "partner": body.partner,
-            "moods": body.moods,
-            "mood_text": body.mood_text,
-            "languages": body.languages,
-            "content_type": body.content_type,
-            "min_rating": body.min_rating,
-            "eras": body.eras,
-        }
-    ).execute()
+    # The client's requested partner slot is only a hint. Whichever slot a
+    # device actually gets is decided here, keyed by device_id -- this is
+    # the single source of truth. Relying on the client to guess its own
+    # slot in advance breaks whenever both people reach this form the same
+    # way (e.g. both just open the shared link instead of one continuing
+    # from the "creator" screen on their own device), which silently
+    # doubled up both submissions as the same partner.
+    existing_resp = (
+        db.table("preferences").select("*").eq("session_id", session_id).execute()
+    )
+    existing = existing_resp.data or []
+    device_row = next((p for p in existing if p.get("device_id") == body.device_id), None)
+
+    if device_row:
+        assigned_partner = device_row["partner"]
+        db.table("preferences").update(
+            {
+                "moods": body.moods,
+                "mood_text": body.mood_text,
+                "languages": body.languages,
+                "content_type": body.content_type,
+                "min_rating": body.min_rating,
+                "eras": body.eras,
+            }
+        ).eq("id", device_row["id"]).execute()
+    else:
+        occupied = {p["partner"] for p in existing}
+        if len(occupied) >= 2:
+            raise HTTPException(
+                status_code=409, detail="This session already has two partners"
+            )
+        assigned_partner = "A" if "A" not in occupied else "B"
+        db.table("preferences").insert(
+            {
+                "session_id": session_id,
+                "partner": assigned_partner,
+                "device_id": body.device_id,
+                "moods": body.moods,
+                "mood_text": body.mood_text,
+                "languages": body.languages,
+                "content_type": body.content_type,
+                "min_rating": body.min_rating,
+                "eras": body.eras,
+            }
+        ).execute()
 
     prefs_resp = (
         db.table("preferences").select("*").eq("session_id", session_id).execute()
@@ -171,7 +204,7 @@ def submit_preferences(session_id: str, body: PreferencesRequest):
         ).execute()
         session["status"] = "swiping"
 
-    return {"status": session["status"]}
+    return {"status": session["status"], "partner": assigned_partner}
 
 
 @app.get("/sessions/{session_id}")
