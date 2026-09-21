@@ -97,9 +97,11 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  getSession: (sessionId: string, partner: "A" | "B") =>
+  getSession: (sessionId: string, partner: "A" | "B", deviceId?: string) =>
     request<GetSessionResponse>(
-      `/sessions/${sessionId}?partner=${partner}`
+      `/sessions/${sessionId}?partner=${partner}${
+        deviceId ? `&device_id=${encodeURIComponent(deviceId)}` : ""
+      }`
     ),
 
   submitSwipe: (

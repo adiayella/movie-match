@@ -40,6 +40,27 @@ def _db():
     return get_client()
 
 
+def _resolve_partner(db, session_id: str, device_id: str, fallback: str) -> str:
+    """Authoritative partner lookup by device_id. Never trust a client-supplied
+    partner label for anything that affects match detection or pool
+    ordering -- a device's locally cached guess can go stale (e.g. it
+    re-visits the join link after already being assigned a slot), and a
+    stale guess silently corrupts swipe attribution. Falls back to the
+    caller-supplied value only when this device has no preferences row yet
+    (nothing authoritative to resolve against)."""
+    row = (
+        db.table("preferences")
+        .select("partner")
+        .eq("session_id", session_id)
+        .eq("device_id", device_id)
+        .limit(1)
+        .execute()
+    )
+    if row.data:
+        return row.data[0]["partner"]
+    return fallback
+
+
 @app.get("/health")
 def health():
     return {"ok": True}
@@ -208,12 +229,19 @@ def submit_preferences(session_id: str, body: PreferencesRequest):
 
 
 @app.get("/sessions/{session_id}")
-def get_session(session_id: str, partner: str = Query(...)):
+def get_session(
+    session_id: str,
+    partner: str = Query(...),
+    device_id: Optional[str] = Query(None),
+):
     db = _db()
     session_resp = db.table("sessions").select("*").eq("id", session_id).execute()
     if not session_resp.data:
         raise HTTPException(status_code=404, detail="session not found")
     session = session_resp.data[0]
+
+    if device_id:
+        partner = _resolve_partner(db, session_id, device_id, partner)
 
     pool_resp = (
         db.table("title_pool")
@@ -282,11 +310,12 @@ def submit_swipe(session_id: str, body: SwipeRequest):
     if not session_resp.data:
         raise HTTPException(status_code=404, detail="session not found")
     session = session_resp.data[0]
+    partner = _resolve_partner(db, session_id, body.device_id, body.partner)
 
     db.table("swipes").insert(
         {
             "session_id": session_id,
-            "partner": body.partner,
+            "partner": partner,
             "tmdb_id": body.tmdb_id,
             "round": body.round,
             "direction": body.direction,
@@ -301,7 +330,7 @@ def submit_swipe(session_id: str, body: SwipeRequest):
             for s in swipes
             if s["tmdb_id"] == body.tmdb_id
             and s["direction"] == "right"
-            and s["partner"] != body.partner
+            and s["partner"] != partner
         ]
         if others_right:
             pool = _current_pool(db, session_id, body.round)

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { api, OttPlatform } from "../lib/api";
-import { getPartnerForSession } from "../lib/identity";
+import { getDeviceId, getPartnerForSession } from "../lib/identity";
 
 export default function Match() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -29,7 +29,7 @@ export default function Match() {
     // hand-off, so fetch the match details the backend recorded.
     const partner = getPartnerForSession(sessionId) || "A";
     api
-      .getSession(sessionId, partner)
+      .getSession(sessionId, partner, getDeviceId())
       .then((resp) => {
         if (resp.match) {
           setMatchedTitle({

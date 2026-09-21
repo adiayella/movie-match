@@ -18,7 +18,7 @@ export default function Swipe() {
   const loadPool = useCallback(async () => {
     if (!sessionId) return;
     try {
-      const resp = await api.getSession(sessionId, partner);
+      const resp = await api.getSession(sessionId, partner, getDeviceId());
       setPool(resp.pool);
       setRound(resp.session.round);
       if (resp.session.status === "matched") {

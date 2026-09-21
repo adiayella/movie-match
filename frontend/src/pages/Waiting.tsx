@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useSessionRealtime } from "../lib/supabase";
 import { api } from "../lib/api";
-import { getPartnerForSession } from "../lib/identity";
+import { getDeviceId, getPartnerForSession } from "../lib/identity";
 
 export default function Waiting() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -26,7 +26,7 @@ export default function Waiting() {
 
     async function check() {
       try {
-        const resp = await api.getSession(sessionId!, partner);
+        const resp = await api.getSession(sessionId!, partner, getDeviceId());
         if (!cancelled && resp.session.status === "swiping") {
           navigate(`/s/${sessionId}/swipe`);
         }
