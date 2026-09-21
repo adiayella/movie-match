@@ -12,10 +12,12 @@ export default function Join() {
 
   useEffect(() => {
     if (!sessionId) return;
-    const existing = getPartnerForSession(sessionId);
-    if (!existing) {
-      setPartnerForSession(sessionId, "B");
-    }
+    // Arriving via the invite link/QR always means you're Partner B — set
+    // this unconditionally. (Not "only if unset": if this browser also
+    // created the session, e.g. someone testing solo in two tabs, the
+    // creator's "A" would already be sitting in this session's shared
+    // localStorage and must be overridden here, not preserved.)
+    setPartnerForSession(sessionId, "B");
     api.joinSession(sessionId).catch(() => {
       // session might already be past waiting_b, that's fine
     });
