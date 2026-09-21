@@ -114,7 +114,12 @@ def _discover(media_type: str, brief: dict, min_rating: int, exclude_ids: Option
     }
     genre_ids = _map_genres_to_ids(brief.get("genres", []), media_type)
     if genre_ids:
-        params["with_genres"] = ",".join(str(g) for g in genre_ids)
+        # Pipe = OR ("any of these genres"), comma = AND ("all of these
+        # genres"). We want OR: a brief naming 3+ genres should widen the
+        # pool, not require every title to match all of them at once
+        # (comma routinely returned zero results for anything but the
+        # most generic genre combos).
+        params["with_genres"] = "|".join(str(g) for g in genre_ids)
 
     languages_iso = brief.get("languages_iso") or []
     if len(languages_iso) == 1:
