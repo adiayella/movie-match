@@ -1,24 +1,35 @@
+"""LLM brief-generation service.
+
+Named claude_service for historical reasons but backed by Google's Gemini API
+(the project switched providers after initial scaffolding). Function names/
+signatures are unchanged so callers in main.py didn't need to change.
+"""
+
 import json
 import os
 from typing import Optional
 
-from anthropic import Anthropic
+from google import genai
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-MODEL = "claude-sonnet-5"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+MODEL_NAME = "gemini-flash-latest"
 
-_client: Optional[Anthropic] = None
+_client = None
 
 
-def _get_client() -> Anthropic:
+def _get_client():
     global _client
     if _client is None:
-        _client = Anthropic(api_key=ANTHROPIC_API_KEY)
+        _client = genai.Client(api_key=GEMINI_API_KEY)
     return _client
 
 
 def _extract_json(text: str) -> dict:
     text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lower().startswith("json"):
+            text = text[4:]
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1:
@@ -26,16 +37,10 @@ def _extract_json(text: str) -> dict:
     return json.loads(text)
 
 
-def _call_claude(prompt: str) -> dict:
+def _call_llm(prompt: str) -> dict:
     client = _get_client()
-    resp = client.messages.create(
-        model=MODEL,
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = "".join(
-        block.text for block in resp.content if getattr(block, "type", None) == "text"
-    )
+    resp = client.models.generate_content(model=MODEL_NAME, contents=prompt)
+    raw = resp.text or ""
     try:
         return _extract_json(raw)
     except (ValueError, json.JSONDecodeError):
@@ -45,16 +50,8 @@ def _call_claude(prompt: str) -> dict:
             "Respond again with ONLY a single valid JSON object, no markdown "
             "fences, no commentary, no leading or trailing text."
         )
-        resp2 = client.messages.create(
-            model=MODEL,
-            max_tokens=1024,
-            messages=[{"role": "user", "content": retry_prompt}],
-        )
-        raw2 = "".join(
-            block.text
-            for block in resp2.content
-            if getattr(block, "type", None) == "text"
-        )
+        resp2 = client.models.generate_content(model=MODEL_NAME, contents=retry_prompt)
+        raw2 = resp2.text or ""
         return _extract_json(raw2)
 
 
@@ -89,7 +86,7 @@ Guidance:
 - media_types: subset of ["movie","tv"].
 - avoid: things to steer away from based on either partner's stated dislikes or mood.
 """
-    return _call_claude(prompt)
+    return _call_llm(prompt)
 
 
 def refine_from_swipes(brief: dict, liked_titles: list) -> dict:
@@ -102,4 +99,4 @@ Here are the titles they both swiped right on (liked) in the first round, with g
 Produce a refined search brief for a second round of recommendations, weighted toward what they actually liked. Output ONLY a single JSON object with exactly this shape (no markdown fences, no commentary):
 {SCHEMA_HINT}
 """
-    return _call_claude(prompt)
+    return _call_llm(prompt)

@@ -2,7 +2,7 @@ fastapi
 uvicorn[standard]
 pydantic
 httpx
-anthropic
+google-genai
 supabase
 qrcode[pil]
 python-dotenv

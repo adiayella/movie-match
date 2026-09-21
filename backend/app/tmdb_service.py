@@ -149,6 +149,18 @@ def _discover(media_type: str, brief: dict, min_rating: int, exclude_ids: Option
     return normalized
 
 
+def get_imdb_id(tmdb_id: int, media_type: str) -> Optional[str]:
+    try:
+        with httpx.Client(timeout=10) as client:
+            resp = client.get(
+                f"{BASE_URL}/{media_type}/{tmdb_id}/external_ids", headers=_headers()
+            )
+            resp.raise_for_status()
+            return resp.json().get("imdb_id")
+    except httpx.HTTPError:
+        return None
+
+
 def discover_titles(brief: dict, content_type: str, min_rating: int, exclude_ids: Optional[set] = None) -> list:
     media_types = brief.get("media_types") or ["movie"]
     want_movies = "movie" in media_types
