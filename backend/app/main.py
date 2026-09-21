@@ -194,7 +194,30 @@ def get_session(session_id: str, partner: str = Query(...)):
     rng = random.Random(f"{partner}{session_id}")
     rng.shuffle(pool)
 
-    return {"session": session, "pool": pool}
+    match = None
+    if session["status"] == "matched":
+        match_resp = (
+            db.table("matches")
+            .select("*")
+            .eq("session_id", session_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if match_resp.data:
+            match_row = match_resp.data[0]
+            title_resp = (
+                db.table("title_pool")
+                .select("*")
+                .eq("session_id", session_id)
+                .eq("tmdb_id", match_row["tmdb_id"])
+                .limit(1)
+                .execute()
+            )
+            title_row = title_resp.data[0] if title_resp.data else {}
+            match = {**title_row, "ott_platforms": match_row.get("ott_platforms") or []}
+
+    return {"session": session, "pool": pool, "match": match}
 
 
 def _current_pool(db, session_id: str, round_num: int) -> list:

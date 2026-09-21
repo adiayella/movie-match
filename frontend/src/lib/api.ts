@@ -44,6 +44,7 @@ export interface SessionRow {
 export interface GetSessionResponse {
   session: SessionRow;
   pool: TitleCard[];
+  match: (TitleCard & { ott_platforms: OttPlatform[] }) | null;
 }
 
 export interface SwipeResponse {

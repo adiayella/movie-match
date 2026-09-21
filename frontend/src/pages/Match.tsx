@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { OttPlatform } from "../lib/api";
+import { api, OttPlatform } from "../lib/api";
+import { getPartnerForSession } from "../lib/identity";
 
 export default function Match() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -15,12 +16,34 @@ export default function Match() {
   } | null>(null);
 
   useEffect(() => {
+    if (!sessionId) return;
     const stored = sessionStorage.getItem(`match_${sessionId}`);
     if (stored) {
       const parsed = JSON.parse(stored);
       setMatchedTitle(parsed.title_info || null);
       setOtt(parsed.ott_platforms || []);
+      return;
     }
+
+    // Passive partner (didn't trigger the match) has no sessionStorage
+    // hand-off, so fetch the match details the backend recorded.
+    const partner = getPartnerForSession(sessionId) || "A";
+    api
+      .getSession(sessionId, partner)
+      .then((resp) => {
+        if (resp.match) {
+          setMatchedTitle({
+            title: resp.match.title,
+            year: resp.match.year,
+            poster_url: resp.match.poster_url,
+            synopsis: resp.match.synopsis,
+          });
+          setOtt(resp.match.ott_platforms || []);
+        }
+      })
+      .catch(() => {
+        // leave the generic fallback message showing
+      });
   }, [sessionId]);
 
   return (

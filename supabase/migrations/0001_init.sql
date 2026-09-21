@@ -91,3 +91,7 @@ create policy "allow all" on title_pool for all using (true) with check (true);
 create policy "allow all" on swipes for all using (true) with check (true);
 create policy "allow all" on matches for all using (true) with check (true);
 create policy "allow all" on ratings for all using (true) with check (true);
+
+-- Required for the frontend's Supabase Realtime subscriptions (session status,
+-- swipe, and match live updates) to receive postgres_changes events.
+alter publication supabase_realtime add table sessions, swipes, matches;
