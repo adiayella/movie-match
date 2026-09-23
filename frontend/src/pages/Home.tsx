@@ -34,7 +34,7 @@ export default function Home() {
       <button className="btn-primary" onClick={startSession} disabled={loading}>
         {loading ? "Starting..." : "Start a new movie night"}
       </button>
-      {error && <p style={{ color: "var(--accent-dark)" }}>{error}</p>}
+      {error && <p className="error-text">{error}</p>}
     </div>
   );
 }

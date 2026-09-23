@@ -121,7 +121,7 @@ export default function Swipe() {
   if (error) {
     return (
       <div className="center-col">
-        <p style={{ color: "var(--accent-dark)" }}>{error}</p>
+        <p className="error-text">{error}</p>
       </div>
     );
   }

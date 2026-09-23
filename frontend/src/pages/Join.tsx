@@ -66,7 +66,7 @@ export default function Join() {
     return (
       <div className="center-col">
         <h2>Couldn't build tonight's shortlist</h2>
-        <p style={{ color: "var(--accent-dark)" }}>{error}</p>
+        <p className="error-text">{error}</p>
         <button
           className="btn-primary"
           disabled={submitting}

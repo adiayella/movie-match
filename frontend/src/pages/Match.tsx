@@ -53,7 +53,7 @@ export default function Match() {
         animate={{ scale: 1, opacity: 1 }}
         transition={{ type: "spring", stiffness: 200, damping: 15 }}
       >
-        <h1>It's a match!</h1>
+        <h1 className="match-title">It's a match!</h1>
       </motion.div>
       {matchedTitle ? (
         <div className="card" style={{ width: "100%" }}>
