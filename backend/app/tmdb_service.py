@@ -1,4 +1,5 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from typing import Optional
 
@@ -107,7 +108,15 @@ def _fetch_runtime(tmdb_id: int, media_type: str) -> Optional[int]:
         return None
 
 
-def _discover(media_type: str, brief: dict, min_rating: int, exclude_ids: Optional[set] = None) -> list:
+def _discover(
+    media_type: str,
+    brief: dict,
+    min_rating: int,
+    exclude_ids: Optional[set] = None,
+    vote_floor: int = 20,
+    use_genres: bool = True,
+    use_era: bool = True,
+) -> list:
     params = {
         "sort_by": "popularity.desc",
         "vote_average.gte": min_rating,
@@ -116,9 +125,9 @@ def _discover(media_type: str, brief: dict, min_rating: int, exclude_ids: Option
         # dominate a "7+ rating" pool. 20 is deliberately low -- TMDB vote
         # counts are sparse for regional Indian cinema, and a stricter floor
         # (50) cut a Telugu pool from 30 titles down to 11.
-        "vote_count.gte": 20,
+        "vote_count.gte": vote_floor,
     }
-    genre_ids = _map_genres_to_ids(brief.get("genres", []), media_type)
+    genre_ids = _map_genres_to_ids(brief.get("genres", []), media_type) if use_genres else []
     if genre_ids:
         # Pipe = OR ("any of these genres"), comma = AND ("all of these
         # genres"). We want OR: a brief naming 3+ genres should widen the
@@ -131,8 +140,8 @@ def _discover(media_type: str, brief: dict, min_rating: int, exclude_ids: Option
     if len(languages_iso) == 1:
         params["with_original_language"] = languages_iso[0]
 
-    year_min = brief.get("year_min")
-    year_max = brief.get("year_max")
+    year_min = brief.get("year_min") if use_era else None
+    year_max = brief.get("year_max") if use_era else None
     date_field = "primary_release_date" if media_type == "movie" else "first_air_date"
     if year_min:
         params[f"{date_field}.gte"] = f"{year_min}-01-01"
@@ -186,6 +195,9 @@ def get_imdb_id(tmdb_id: int, media_type: str) -> Optional[str]:
         return None
 
 
+TARGET_POOL = 30
+
+
 def discover_titles(brief: dict, content_type: str, min_rating: int, exclude_ids: Optional[set] = None) -> list:
     media_types = brief.get("media_types") or ["movie"]
     want_movies = "movie" in media_types
@@ -193,26 +205,56 @@ def discover_titles(brief: dict, content_type: str, min_rating: int, exclude_ids
     if content_type == "Movies only":
         want_tv = False
 
-    results = []
-    if want_movies:
-        results.extend(_discover("movie", brief, min_rating, exclude_ids))
-    if want_tv:
-        results.extend(_discover("tv", brief, min_rating, exclude_ids))
+    # Narrow preference combinations legitimately return nothing -- "Telugu
+    # horror/thriller rated 8+" has zero matches on TMDB, and the couple
+    # would just hit a dead end. So widen the net in stages and keep topping
+    # the deck up, strictest matches first: the exact ask leads, looser
+    # results only fill whatever space is left. Language is never relaxed --
+    # serving Hindi films to someone who asked for Telugu is a worse answer
+    # than a slightly lower-rated Telugu one.
+    ladder = [
+        dict(min_rating=min_rating, vote_floor=20, use_genres=True, use_era=True),
+        dict(min_rating=min_rating, vote_floor=5, use_genres=True, use_era=True),
+        dict(min_rating=min_rating, vote_floor=5, use_genres=False, use_era=True),
+        dict(min_rating=max(6, min_rating - 1), vote_floor=5, use_genres=True, use_era=True),
+        dict(min_rating=max(6, min_rating - 2), vote_floor=5, use_genres=False, use_era=True),
+        dict(min_rating=6, vote_floor=5, use_genres=False, use_era=False),
+        dict(min_rating=0, vote_floor=0, use_genres=False, use_era=False),
+    ]
 
     seen = set()
-    deduped = []
-    for item in results:
-        key = (item["media_type"], item["tmdb_id"])
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(item)
+    deduped: list = []
+    for step in ladder:
+        batch = []
+        if want_movies:
+            batch.extend(_discover("movie", brief, exclude_ids=exclude_ids, **step))
+        if want_tv:
+            batch.extend(_discover("tv", brief, exclude_ids=exclude_ids, **step))
 
-    deduped.sort(key=lambda x: x.get("imdb_rating") or 0, reverse=True)
-    top = deduped[:30]
+        batch.sort(key=lambda x: x.get("imdb_rating") or 0, reverse=True)
+        for item in batch:
+            key = (item["media_type"], item["tmdb_id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
 
-    for item in top:
-        if item["media_type"] == "movie":
-            item["runtime"] = _fetch_runtime(item["tmdb_id"], "movie")
+        if len(deduped) >= TARGET_POOL:
+            break
+
+    top = deduped[:TARGET_POOL]
+
+    # Runtime needs a per-title detail call. Done serially that was 30
+    # round trips tacked onto the end of pool generation -- with both
+    # partners already staring at a spinner, and long enough to risk the
+    # request timing out on a phone. These are independent, so fan them out.
+    movies = [t for t in top if t["media_type"] == "movie"]
+    if movies:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            runtimes = pool.map(
+                lambda t: _fetch_runtime(t["tmdb_id"], "movie"), movies
+            )
+            for item, runtime in zip(movies, runtimes):
+                item["runtime"] = runtime
 
     return top
