@@ -72,6 +72,68 @@ The app runs at `http://localhost:5173` by default.
 6. After watching, either partner can leave a quick rating that feeds into
    future recommendations for the same pair.
 
+## Deploying
+
+Frontend on Vercel, backend on Render. Vercel can't host the backend: it runs
+Python only as serverless functions, and building a shortlist takes ~8-18s
+(Gemini + several TMDB pages), which exceeds the 10s Hobby function timeout.
+
+**No key in this section belongs in git.** Every one goes in the host's
+dashboard. This repo is public — anything committed here is world-readable and
+gets scraped within minutes.
+
+### 1. Backend → Render
+
+Render picks up `render.yaml` automatically (New → Blueprint, point it at this
+repo). Then set these in the dashboard, under the service's Environment tab:
+
+| Variable | Value |
+| --- | --- |
+| `GEMINI_API_KEY` | your Google AI Studio key |
+| `TMDB_API_KEY` | your TMDB **v4 read access token** (sent as a bearer token, not the v3 key) |
+| `RAPIDAPI_KEY` | your RapidAPI key |
+| `RAPIDAPI_HOST` | `ott-details.p.rapidapi.com` |
+| `SUPABASE_URL` | `https://<project>.supabase.co` |
+| `SUPABASE_SERVICE_KEY` | Supabase **service role** key — backend only, see warning below |
+| `PUBLIC_BASE_URL` | your Vercel URL, e.g. `https://movie-match.vercel.app` |
+| `ALLOWED_ORIGINS` | same Vercel URL, to stop leaving CORS wide open |
+
+`PUBLIC_BASE_URL` is what the QR code and invite link are built from — if it's
+wrong or still points at localhost, your partner's phone can't join.
+
+### 2. Frontend → Vercel
+
+Import the repo and **set Root Directory to `frontend`**, otherwise Vercel
+tries to build the Python backend. `frontend/vercel.json` handles the rest,
+including the SPA rewrite that keeps deep links like `/s/<session-id>` working
+on refresh. Environment variables:
+
+| Variable | Value |
+| --- | --- |
+| `VITE_API_BASE_URL` | your Render URL, e.g. `https://movie-match-api.onrender.com` |
+| `VITE_SUPABASE_URL` | `https://<project>.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anon/publishable key |
+
+In local dev `VITE_API_BASE_URL` is `/api`, which the Vite dev server proxies
+to `localhost:8000`. That proxy only exists in dev, so production needs the
+backend's real URL.
+
+> **Anything prefixed `VITE_` is compiled into the JavaScript bundle and is
+> publicly readable.** Only the anon key belongs there. The Supabase *service
+> role* key bypasses Row Level Security entirely — putting it in a `VITE_`
+> variable hands your whole database to anyone who opens devtools.
+
+### 3. Before sharing the deployed link
+
+Read the security note below first. With the permissive RLS policies this repo
+ships with, a public deployment means anyone who finds the URL can read and
+write every table using the anon key. That's acceptable while it's just the two
+of you testing; it is not acceptable for something you post publicly.
+
+Also note Render's free tier sleeps after ~15 minutes idle, so the first
+request after a quiet spell takes ~50s to wake up. It looks like the app has
+frozen, but it hasn't.
+
 ## Security model note
 
 This is an MVP with no user accounts/login. Access control is based entirely

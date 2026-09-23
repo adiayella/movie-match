@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: movie-match-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      # Set every one of these in the Render dashboard. None of them belong
+      # in this file or anywhere else in git -- this repo is public.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: TMDB_API_KEY
+        sync: false
+      - key: RAPIDAPI_KEY
+        sync: false
+      - key: RAPIDAPI_HOST
+        value: ott-details.p.rapidapi.com
+      - key: SUPABASE_URL
+        sync: false
+      # Full read/write access to the database. Backend only -- never put
+      # this on Vercel, where any VITE_-prefixed value ships to the browser.
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      # The deployed frontend origin. Used to build the QR/join links, so if
+      # it's wrong the invite link sends your partner to the wrong place.
+      - key: PUBLIC_BASE_URL
+        sync: false
+      # Lock CORS to the frontend origin once deployed; defaults to "*".
+      - key: ALLOWED_ORIGINS
+        sync: false
