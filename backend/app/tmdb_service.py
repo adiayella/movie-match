@@ -1,4 +1,5 @@
 import os
+from datetime import date
 from typing import Optional
 
 import httpx
@@ -110,7 +111,12 @@ def _discover(media_type: str, brief: dict, min_rating: int, exclude_ids: Option
     params = {
         "sort_by": "popularity.desc",
         "vote_average.gte": min_rating,
-        "page": 1,
+        # A vote_average off a handful of votes is noise: obscure titles
+        # routinely sit at 10.0 from a single vote and would otherwise
+        # dominate a "7+ rating" pool. 20 is deliberately low -- TMDB vote
+        # counts are sparse for regional Indian cinema, and a stricter floor
+        # (50) cut a Telugu pool from 30 titles down to 11.
+        "vote_count.gte": 20,
     }
     genre_ids = _map_genres_to_ids(brief.get("genres", []), media_type)
     if genre_ids:
@@ -130,18 +136,32 @@ def _discover(media_type: str, brief: dict, min_rating: int, exclude_ids: Option
     date_field = "primary_release_date" if media_type == "movie" else "first_air_date"
     if year_min:
         params[f"{date_field}.gte"] = f"{year_min}-01-01"
-    if year_max:
-        params[f"{date_field}.lte"] = f"{year_max}-12-31"
+    # Never propose something that isn't out yet. The whole promise of the
+    # app is "watch it tonight, here's where" -- an unreleased title has no
+    # streaming options at all, so a match on one is a dead end.
+    today = date.today().isoformat()
+    upper = f"{year_max}-12-31" if year_max else today
+    params[f"{date_field}.lte"] = min(upper, today)
 
+    results = []
     try:
         with httpx.Client(timeout=10) as client:
-            resp = client.get(
-                f"{BASE_URL}/discover/{media_type}", headers=_headers(), params=params
-            )
-            resp.raise_for_status()
-            results = resp.json().get("results", [])
+            # One page is only 20 results, which left round 2 with almost
+            # nothing after de-duplicating against round 1. Pull a few pages
+            # so both rounds have a full deck to work with.
+            for page in range(1, 4):
+                resp = client.get(
+                    f"{BASE_URL}/discover/{media_type}",
+                    headers=_headers(),
+                    params={**params, "page": page},
+                )
+                resp.raise_for_status()
+                page_results = resp.json().get("results", [])
+                if not page_results:
+                    break
+                results.extend(page_results)
     except httpx.HTTPError:
-        results = []
+        pass
 
     normalized = []
     for item in results:

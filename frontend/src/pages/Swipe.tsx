@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import SwipeDeck from "../components/SwipeDeck";
 import { api, TitleCard } from "../lib/api";
@@ -12,6 +12,8 @@ export default function Swipe() {
   const [round, setRound] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const { status, lastEvent } = useSessionRealtime(sessionId ?? null);
+  const roundRef = useRef(round);
+  roundRef.current = round;
 
   const partner = sessionId ? getPartnerForSession(sessionId) || "A" : "A";
 
@@ -45,6 +47,40 @@ export default function Swipe() {
       loadPool();
     }
   }, [status, lastEvent, sessionId, navigate, loadPool]);
+
+  // Whoever finishes their deck first sits on "waiting for your partner",
+  // and every transition out of it (match, round 2, final choice) is
+  // triggered by the *other* device. Realtime alone is not enough to get
+  // out of here -- if the socket never connects or drops, this screen
+  // hangs forever. Poll the session as a safety net, and only react when
+  // something actually changed so we don't reset the deck mid-swipe.
+  useEffect(() => {
+    if (!sessionId) return;
+    let cancelled = false;
+
+    async function check() {
+      try {
+        const resp = await api.getSession(sessionId!, partner, getDeviceId());
+        if (cancelled) return;
+        if (resp.session.status === "matched") {
+          navigate(`/s/${sessionId}/match`);
+        } else if (resp.session.status === "final_choice") {
+          navigate(`/s/${sessionId}/final`);
+        } else if (resp.session.round !== roundRef.current) {
+          setPool(resp.pool);
+          setRound(resp.session.round);
+        }
+      } catch {
+        // transient failure, next tick retries
+      }
+    }
+
+    const interval = setInterval(check, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [sessionId, partner, navigate]);
 
   async function handleSwipe(card: TitleCard, direction: "left" | "right") {
     if (!sessionId) return;
@@ -103,7 +139,9 @@ export default function Swipe() {
     <div>
       <h2>Round {round}</h2>
       <p>Swipe right if you'd watch it, left to pass.</p>
-      <SwipeDeck cards={pool} onSwipe={handleSwipe} />
+      {/* keyed by round: a new round must reset the deck to card 0, otherwise
+          the old index carries over and round 2 opens already "finished". */}
+      <SwipeDeck key={round} cards={pool} onSwipe={handleSwipe} />
     </div>
   );
 }
