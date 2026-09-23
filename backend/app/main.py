@@ -6,8 +6,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from . import claude_service, streaming_service, tmdb_service
 from .db import get_client
@@ -26,6 +27,24 @@ PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://localhost:5173")
 ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "*")
 
 app = FastAPI(title="Movie Match API")
+
+
+# Registered BEFORE the CORS middleware so that CORS ends up outermost and
+# still decorates error responses. An exception escaping to Starlette's
+# default handler produces a 500 with no CORS headers, which a browser can
+# only report as an opaque "Failed to fetch"/"Load failed" -- indistinguishable
+# from the server being down, and impossible to show the user anything useful
+# about. Convert it to a normal JSON response instead.
+@app.middleware("http")
+async def json_errors(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as exc:  # noqa: BLE001 -- last line of defence
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"{type(exc).__name__}: {exc}"},
+        )
+
 
 app.add_middleware(
     CORSMiddleware,
